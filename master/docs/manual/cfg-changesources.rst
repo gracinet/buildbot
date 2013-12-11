@@ -37,7 +37,7 @@ CVS
    sendchange`` run in a loginfo script)
  * :bb:chsrc:`PBChangeSource` (listening for connections from a long-running
    :file:`contrib/viewcvspoll.py` polling process which examines the ViewCVS
-   database directly
+   database directly)
  * :bb:chsrc:`Change Hooks` in WebStatus
 
 SVN
@@ -63,8 +63,8 @@ Mercurial
    :file:`contrib/hg_buildbot.py` run in an 'changegroup' hook)
  * :bb:chsrc:`Change Hooks` in WebStatus
  * :bb:chsrc:`PBChangeSource` (listening for connections from
-   :file:`buildbot/changes/hgbuildbot.py` run as an in-process 'changegroup'
-   hook)
+ * BitBucket change hook (specifically designed for BitBucket notifications,
+    but requiring a publicly-accessible WebStatus)
  * :bb:chsrc:`HgPoller` (polling a remote Mercurial repository)
  * :bb:chsrc:`GoogleCodeAtomPoller` (polling the
    commit feed for a GoogleCode Git repository)
@@ -83,6 +83,8 @@ Git
    from GitHub)
  * :bb:chsrc:`Change Hooks` in WebStatus
  * GitHub change hook (specifically designed for GitHub notifications,
+   but requiring a publicly-accessible WebStatus)
+ * BitBucket change hook (specifically designed for BitBucket notifications,
    but requiring a publicly-accessible WebStatus)
  * :bb:chsrc:`GitPoller` (polling a remote Git repository)
  * :bb:chsrc:`GoogleCodeAtomPoller` (polling the
@@ -231,7 +233,9 @@ slash, so something like ``~/MAILDIR/``\. qmail and postfix are
 maildir-capable MTAs, and procmail is a maildir-capable MDA (Mail
 Delivery Agent).
 
-Here is an example procmail config, located in :file:`~/.procmailrc`::
+Here is an example procmail config, located in :file:`~/.procmailrc`:
+
+.. code-block:: none
 
     # .procmailrc
     # routes incoming mail to appropriate mailboxes
@@ -245,7 +249,9 @@ Here is an example procmail config, located in :file:`~/.procmailrc`::
     new
 
 If procmail is not setup on a system wide basis, then the following one-line
-:file:`.forward` file will invoke it. ::
+:file:`.forward` file will invoke it.
+
+.. code-block:: none
 
     !/usr/bin/procmail
 
@@ -335,11 +341,15 @@ Configuration of CVS and buildbot_cvs_mail.py
 CVS must be configured to invoke the buildbot_cvs_mail.py script when files
 are checked in. This is done via the CVS loginfo configuration file.
 
-To update this, first do::
+To update this, first do:
+
+.. code-block:: bash
 
     cvs checkout CVSROOT
 
-cd to the CVSROOT directory and edit the file loginfo, adding a line like::
+cd to the CVSROOT directory and edit the file loginfo, adding a line like:
+
+.. code-block:: none
 
     SomeModule /cvsroot/CVSROOT/buildbot_cvs_mail.py --cvsroot :ext:example.com:/cvsroot -e buildbot -P SomeModule %@{sVv@}
 
@@ -479,181 +489,6 @@ For example::
 
 The following hooks are useful for sending changes to a :bb:chsrc:`PBChangeSource`\:
 
-.. _Mercurial-Hook:
-
-Mercurial Hook
-++++++++++++++
-
-Since Mercurial is written in Python, the hook script can invoke
-Buildbot's :meth:`sendchange` function directly, rather than having to
-spawn an external process. This function delivers the same sort of
-changes as :command:`buildbot sendchange` and the various hook scripts in
-:file:`contrib/`, so you'll need to add a :bb:chsrc:`PBChangeSource` to your
-buildmaster to receive these changes.
-
-To set this up, first choose a Mercurial repository that represents
-your central `official` source tree. This will be the same
-repository that your buildslaves will eventually pull from. Install
-Buildbot on the machine that hosts this repository, using the same
-version of Python as Mercurial is using (so that the Mercurial hook
-can import code from buildbot). Then add the following to the
-:file:`.hg/hgrc` file in that repository, replacing the buildmaster
-hostname/portnumber as appropriate for your buildbot:
-
-.. code-block:: ini
-
-    [hooks]
-    changegroup.buildbot = python:buildbot.changes.hgbuildbot.hook
-    
-    [hgbuildbot]
-    master = buildmaster.example.org:9987
-    # .. other hgbuildbot parameters ..
-
-The ``master`` configuration key allows to have more than one buildmaster
-specification. The buildmasters have to be separated by a whitspace
-or comma (see also 'hg help config'):
-
-.. code-block:: ini
-
-    master = 
-        buildmaster.example.org:9987
-        buildmaster2.example.org:9989
-
-.. note:: Mercurial lets you define multiple ``changegroup`` hooks by
-   giving them distinct names, like ``changegroup.foo`` and
-   ``changegroup.bar``, which is why we use ``changegroup.buildbot``
-   in this example. There is nothing magical about the `buildbot`
-   suffix in the hook name. The ``[hgbuildbot]`` section *is* special,
-   however, as it is the only section that the buildbot hook pays
-   attention to.) 
-
-Also note that this runs as a ``changegroup`` hook, rather than as
-an ``incoming`` hook. The ``changegroup`` hook is run with
-multiple revisions at a time (say, if multiple revisions are being
-pushed to this repository in a single :command:`hg push` command),
-whereas the ``incoming`` hook is run with just one revision at a
-time. The ``hgbuildbot.hook`` function will only work with the
-``changegroup`` hook.
-
-Changes' attribute ``properties`` has an entry ``is_merge`` which is set to
-true when the change was caused by a merge.
-
-Authentication
-##############
-
-If the buildmaster :bb:chsrc:`PBChangeSource` is configured to require
-sendchange credentials then you can set these with the ``auth``
-parameter. When this parameter is not set it defaults to
-``change:changepw``, which are the defaults for the ``user`` and
-``password`` values of a ``PBChangeSource`` which doesn't require
-authentication. 
-
-.. code-block:: ini
-
-    [hgbuildbot]
-    auth = clientname:supersecret
-    # ...
-
-You can set this parameter in either the global :file:`/etc/mercurial/hgrc`,
-your personal :file:`~/.hgrc` file or the repository local :file:`.hg/hgrc`
-file. But since this value is stored in plain text, you must make sure that
-it can only be read by those users that need to know the authentication
-credentials.
-
-Branch Type
-###########
-
-The ``[hgbuildbot]`` section has two other parameters that you
-might specify, both of which control the name of the branch that is
-attached to the changes coming from this hook.
-
-One common branch naming policy for Mercurial repositories is to use
-Mercurial's built-in branches (the kind created with :command:`hg
-branch` and listed with :command:`hg branches`). This feature
-associates persistent names with particular  lines of descent within a
-single repository. (note that the buildbot ``source.Mercurial``
-checkout step does not yet support this kind of branch). To have the
-commit hook deliver this sort of branch name with the Change object,
-use ``branchtype = inrepo``, this is the default behavior:
-
-.. code-block:: ini
-
-    [hgbuildbot]
-    branchtype = inrepo
-    # ...
-
-Another approach is for each branch to go into a separate repository,
-and all the branches for a single project share a common parent
-directory. For example, you might have :file:`/var/repos/{PROJECT}/trunk/` and
-:file:`/var/repos/{PROJECT}/release`. To use this style, use the
-``branchtype = dirname`` setting, which simply uses the last component
-of the repository's enclosing directory as the branch name:
-
-.. code-block:: ini
-
-    [hgbuildbot]
-    branchtype = dirname
-    # ...
-
-Finally, if you want to simply specify the branchname directly, for
-all changes, use ``branch = BRANCHNAME``. This overrides
-``branchtype``:
-
-.. code-block:: ini
-
-    [hgbuildbot]
-    branch = trunk
-    # ...
-
-If you use ``branch=`` like this, you'll need to put a separate
-:file:`.hgrc` in each repository. If you use ``branchtype=``, you may be
-able to use the same :file:`.hgrc` for all your repositories, stored in
-:file:`~/.hgrc` or :file:`/etc/mercurial/hgrc`.
-
-Compatibility
-#############
-
-As twisted needs to hook some signals, and some web servers 
-strictly forbid that, the parameter ``fork`` in the
-``[hgbuildbot]`` section will instruct Mercurial to fork before
-sending the change request. Then as the created process will be of short
-life, it is considered as safe to disable the signal restriction in
-the Apache setting like that ``WSGIRestrictSignal Off``. Refer to the
-documentation of your web server for other way to do the same.
-
-Resulting Changes
-#################
-
-The ``category`` parameter sets the category for any changes generated from
-the hook.  Likewise, the ``project`` parameter sets the project.
-
-Changes' ``repository`` attributes are formed from the Mercurial repo path by
-stripping ``strip`` slashes on the left, then prepending the ``baseurl``.  For
-example, assume the following parameters:
-
-.. code-block:: ini
-
-    [hgbuildbot]
-    baseurl = http://hg.myorg.com/repos/
-    strip = 3
-    # ...
-
-Then a repopath of ``/var/repos/myproject/release`` would have its left 3
-slashes stripped, leaving ``myproject/release``, after which the base URL would
-be prepended, to create ``http://hg.myorg.com/repos/myproject/release``.
-
-The ``hgbuildbot`` ``baseurl`` value defaults to the value of the same
-parameter in the ``web`` section of the configuration.
-
-.. note:: older versions of Buildbot created repository strings that did not
-    contain an entire URL.  To continue this pattern, set the ``hgbuildbot``
-    ``baseurl`` parameter to an empty string:
-
-    .. code-block:: ini
-
-        [hgbuildbot]
-        baseurl = http://hg.myorg.com/repos/
-
 .. _Bzr-Hook:
 
 Bzr Hook
@@ -763,7 +598,14 @@ depot for changes. It accepts the following arguments:
 
 ``encoding``
     The character encoding of ``p4``\'s output.  This defaults to "utf8", but
-    if your commit messages are in another encoding, specify that here.
+    if your commit messages are in another encoding, specify that here. For example,
+    if you're using Perforce on Windows, you may need to use "cp437" as the
+    encoding if "utf8" generates errors in your master log.
+
+``server_tz``
+    The timezone of the Perforce server, using the usual timezone format
+    (e.g: ``Europe/Stockholm``) in case it's in a different timezone than the
+    buildbot master.
 
 Example
 +++++++
@@ -1086,10 +928,6 @@ A configuration for the Git poller might look like this::
 
 HgPoller
 ~~~~~~~~
-
-If you cannot take advantage of post-receive hooks as provided by
-:file:`buildbot/changes/hgbuildbot.py` for example, then you can use the
-:bb:chsrc:`HgPoller`.
 
 The :bb:chsrc:`HgPoller` periodically pulls a named branch from a remote
 Mercurial repository and processes any changes. It requires its own working

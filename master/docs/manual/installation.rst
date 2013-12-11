@@ -36,8 +36,9 @@ Python: http://www.python.org
 
 Twisted: http://twistedmatrix.com
 
-  Buildbot requires Twisted-9.0.0 or later on the master, and Twisted-8.1.0 on
-  the slave. As always, the most recent version is recommended.
+  Buildbot requires Twisted-11.0.0 or later on the master, and Twisted-8.1.0 on the slave.
+  In upcoming versions of Buildbot, a newer Twisted will also be required on the slave.
+  As always, the most recent version is recommended.
 
   In some cases, Twisted is delivered as a collection of subpackages. You'll
   need at least "Twisted" (the core package), and you'll also want
@@ -129,7 +130,7 @@ together.
 Installation From PyPI
 ~~~~~~~~~~~~~~~~~~~~~~
 
-The easiest way to install Buildbot is using 'pip'. For the master:
+The preferred way to install Buildbot is using ``pip``. For the master:
 
 .. code-block:: bash
 
@@ -140,6 +141,11 @@ and for the slave:
 .. code-block:: bash
 
     pip install buildbot-slave
+
+When using ``pip`` to install instead of distribution specific package manangers, 
+e.g. via `apt-get` or `ports`, it is simpler to choose exactly which version one wants
+to use. It may however be easier to install via distribution specific package mangers
+but note that they may provide an earlier version than what is available via ``pip``.
 
 Installation From Tarballs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -677,11 +683,11 @@ Other Buildslave Configuration
     This represents the encoding that buildbot should use when converting unicode
     commandline arguments into byte strings in order to pass to the operating
     system when spawning new processes.
-    
+
     The default value is what Python's :func:`sys.getfilesystemencoding()` returns, which
     on Windows is 'mbcs', on Mac OSX is 'utf-8', and on Unix depends on your locale
     settings.
-    
+
     If you need a different encoding, this can be changed in your build slave's
     :file:`buildbot.tac` file by adding a ``unicode_encoding``
     argument  to the BuildSlave constructor.

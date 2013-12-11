@@ -15,21 +15,32 @@
 
 
 import os
-from twisted.python.failure import Failure
-from twisted.internet import defer, reactor, protocol, error
+
+from twisted.internet import defer
+from twisted.internet import error
+from twisted.internet import protocol
+from twisted.internet import reactor
 from twisted.protocols.basic import LineOnlyReceiver
+from twisted.python.failure import Failure
+
 
 class FakeTransport:
     disconnecting = False
 
+
 class BuildmasterTimeoutError(Exception):
     pass
+
+
 class ReconfigError(Exception):
     pass
 
+
 class TailProcess(protocol.ProcessProtocol):
+
     def outReceived(self, data):
         self.lw.dataReceived(data)
+
     def errReceived(self, data):
         print "ERR: '%s'" % (data,)
 
@@ -67,10 +78,18 @@ class LogWatcher(LineOnlyReceiver):
 
     def _start(self):
         self.d = defer.Deferred()
-        self.timer = reactor.callLater(self.TIMEOUT_DELAY, self.timeout)
+        self.startTimer()
         return self.d
 
+    def startTimer(self):
+        self.timer = reactor.callLater(self.TIMEOUT_DELAY, self.timeout)
+
     def timeout(self):
+        # was the timeout set to be ignored? if so, restart it
+        if not self.timer:
+            self.startTimer()
+            return
+
         self.timer = None
         e = BuildmasterTimeoutError()
         self.finished(Failure(e))
@@ -97,6 +116,15 @@ class LogWatcher(LineOnlyReceiver):
 
         if self.in_reconfig:
             print line
+
+        # certain lines indicate progress, so we "cancel" the timeout
+        # and it will get re-added when it fires
+        PROGRESS_TEXT = ['Starting BuildMaster', 'Loading configuration from',
+                         'added builder', 'adding scheduler', 'Loading builder', 'Starting factory']
+        for progressText in PROGRESS_TEXT:
+            if progressText in line:
+                self.timer = None
+                break
 
         if "message from master: attached" in line:
             return self.finished("buildslave")

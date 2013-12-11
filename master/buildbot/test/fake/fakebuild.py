@@ -15,9 +15,11 @@
 
 import mock
 import posixpath
-from twisted.python import components
-from buildbot.process import properties
+
 from buildbot import interfaces
+from buildbot.process import properties
+from twisted.python import components
+
 
 class FakeBuildStatus(properties.PropertiesMixin, mock.Mock):
 
@@ -29,23 +31,29 @@ class FakeBuildStatus(properties.PropertiesMixin, mock.Mock):
         return []
 
 components.registerAdapter(
-        lambda build_status : build_status.properties,
-        FakeBuildStatus, interfaces.IProperties)
+    lambda build_status: build_status.properties,
+    FakeBuildStatus, interfaces.IProperties)
 
 
-class FakeBuild(mock.Mock, properties.PropertiesMixin):
+class FakeBuild(properties.PropertiesMixin):
 
-    def __init__(self, *args, **kwargs):
-        mock.Mock.__init__(self, *args, **kwargs)
+    def __init__(self, props=None):
         self.build_status = FakeBuildStatus()
+        self.builder = mock.Mock(name='build.builder')
         self.path_module = posixpath
-        pr = self.build_status.properties = properties.Properties()
-        pr.build = self
 
-    # work around http://code.google.com/p/mock/issues/detail?id=105
-    def _get_child_mock(self, **kw):
-        return mock.Mock(**kw)
+        self.sources = {}
+        if props is None:
+            props = properties.Properties()
+        props.build = self
+        self.build_status.properties = props
+
+    def getSourceStamp(self, codebase):
+        if codebase in self.sources:
+            return self.sources[codebase]
+        return None
+
 
 components.registerAdapter(
-        lambda build : build.build_status.properties,
-        FakeBuild, interfaces.IProperties)
+    lambda build: build.build_status.properties,
+    FakeBuild, interfaces.IProperties)

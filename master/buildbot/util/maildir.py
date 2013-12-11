@@ -20,17 +20,23 @@
 # relative to the top of the maildir (so it will look like "new/blahblah").
 
 import os
-from twisted.python import log, runtime
-from twisted.application import service, internet
-from twisted.internet import reactor, defer
+
+from twisted.application import internet
+from twisted.application import service
+from twisted.internet import defer
+from twisted.internet import reactor
+from twisted.python import log
+from twisted.python import runtime
 dnotify = None
 try:
     import dnotify
 except:
     log.msg("unable to import dnotify, so Maildir will use polling instead")
 
+
 class NoSuchMaildir(Exception):
     pass
+
 
 class MaildirService(service.MultiService):
     pollinterval = 10  # only used if we don't have DNotify
@@ -41,6 +47,7 @@ class MaildirService(service.MultiService):
             self.setBasedir(basedir)
         self.files = []
         self.dnotify = None
+        self.timerService = None
 
     def setBasedir(self, basedir):
         # some users of MaildirService (scheduler.Try_Jobdir, in particular)
@@ -68,8 +75,8 @@ class MaildirService(service.MultiService):
             # because of a python bug
             log.msg("DNotify failed, falling back to polling")
         if not self.dnotify:
-            t = internet.TimerService(self.pollinterval, self.poll)
-            t.setServiceParent(self)
+            self.timerService = internet.TimerService(self.pollinterval, self.poll)
+            self.timerService.setServiceParent(self)
         self.poll()
 
     def dnotify_callback(self):
@@ -86,11 +93,13 @@ class MaildirService(service.MultiService):
 
         reactor.callLater(0.1, self.poll)
 
-
     def stopService(self):
         if self.dnotify:
             self.dnotify.remove()
             self.dnotify = None
+        if self.timerService is not None:
+            self.timerService.disownServiceParent()
+            self.timerService = None
         return service.MultiService.stopService(self)
 
     @defer.inlineCallbacks

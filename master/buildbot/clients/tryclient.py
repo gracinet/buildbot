@@ -183,16 +183,35 @@ class MercurialExtractor(SourceStampExtractor):
     patchlevel = 1
     vcexe = "hg"
 
+    def _didvc(self, res, cmd):
+        (stdout, stderr, code) = res
+
+        if code:
+            cs = ' '.join(['hg'] + cmd)
+            if stderr:
+                stderr = '\n' + stderr.rstrip()
+            raise RuntimeError("%s returned %d%s" % (cs, code, stderr))
+
+        return stdout
+
+    @defer.inlineCallbacks
     def getBaseRevision(self):
         upstream = ""
         if self.repository:
             upstream = "r'%s'" % self.repository
-        d = self.dovc(["log", "--template", "{node}\\n", "-r", "limit(parents(outgoing(%s) and branch(parents())) or parents(), 1)" % upstream])
-        d.addCallback(self.parseStatus)
-        return d
-
-    def parseStatus(self, output):
+        output = ''
+        try:
+            output = yield self.dovc(["log", "--template", "{node}\\n", "-r",
+                                      "max(::. - outgoing(%s))" % upstream])
+        except RuntimeError:
+            # outgoing() will abort if no default-push/default path is configured
+            if upstream:
+                raise
+            # fall back to current working directory parent
+            output = yield self.dovc(["log", "--template", "{node}\\n", "-r", "p1()"])
         m = re.search(r'^(\w+)', output)
+        if not m:
+            raise RuntimeError("Revision %r is not in the right format" % (output,))
         self.baserev = m.group(0)
 
     def getPatch(self, res):
@@ -311,7 +330,7 @@ class GitExtractor(SourceStampExtractor):
         remote = self.config.get("branch." + self.branch + ".remote")
         ref = self.config.get("branch." + self.branch + ".merge")
         if remote and ref:
-            remote_branch = ref.split("/", 3)[-1]
+            remote_branch = ref.split("/", 2)[-1]
             d = self.dovc(["rev-parse", remote + "/" + remote_branch])
             d.addCallback(self.override_baserev)
             return d
@@ -390,7 +409,7 @@ def ns(s):
 
 def createJobfile(jobid, branch, baserev, patch_level, patch_body, repository,
                   project, who, comment, builderNames, properties):
-    #Determine job file version from provided arguments
+    # Determine job file version from provided arguments
     if properties:
         version = 5
     elif comment:
@@ -442,11 +461,12 @@ def getTopdir(topfile, start=None):
         here = next
         toomany -= 1
     print ("Unable to find topfile '%s' anywhere from %s upwards"
-                     % (topfile, start))
+           % (topfile, start))
     sys.exit(1)
 
 
 class RemoteTryPP(protocol.ProcessProtocol):
+
     def __init__(self, job):
         self.job = job
         self.d = defer.Deferred()
@@ -464,7 +484,7 @@ class RemoteTryPP(protocol.ProcessProtocol):
     def processEnded(self, status_object):
         sig = status_object.value.signal
         rc = status_object.value.exitCode
-        if sig != None or rc != 0:
+        if sig is not None or rc != 0:
             self.d.errback(RuntimeError("remote 'buildbot tryserver' failed"
                                         ": sig=%s, rc=%s" % (sig, rc)))
             return
@@ -607,8 +627,12 @@ class Try(pb.Referenceable):
             tryuser = self.getopt("username")
             trydir = self.getopt("jobdir")
             buildbotbin = self.getopt("buildbotbin")
-            argv = ["ssh", "-l", tryuser, tryhost,
-                    buildbotbin, "tryserver", "--jobdir", trydir]
+            if tryuser:
+                argv = ["ssh", "-l", tryuser, tryhost,
+                        buildbotbin, "tryserver", "--jobdir", trydir]
+            else:
+                argv = ["ssh", tryhost,
+                        buildbotbin, "tryserver", "--jobdir", trydir]
             pp = RemoteTryPP(self.jobfile)
             reactor.spawnProcess(pp, argv[0], argv, os.environ)
             d = pp.d
@@ -779,8 +803,7 @@ class Try(pb.Referenceable):
 
     def printStatus(self):
         try:
-            names = self.buildRequests.keys()
-            names.sort()
+            names = sorted(self.buildRequests.keys())
             for n in names:
                 if n not in self.outstanding:
                     # the build is finished, and we have results
@@ -804,8 +827,7 @@ class Try(pb.Referenceable):
             self.printloop.stop()
         print "All Builds Complete"
         # TODO: include a URL for all failing builds
-        names = self.buildRequests.keys()
-        names.sort()
+        names = sorted(self.buildRequests.keys())
         happy = True
         for n in names:
             code, text = self.results[n]
@@ -838,7 +860,7 @@ class Try(pb.Referenceable):
             d.addCallback(self._getBuilderNames, self._getBuilderNames2)
             return d
         if self.connect == "ssh":
-            print "Cannot get availble builders over ssh."
+            print "Cannot get available builders over ssh."
             sys.exit(1)
         raise RuntimeError(
             "unknown connecttype '%s', should be 'pb'" % self.connect)

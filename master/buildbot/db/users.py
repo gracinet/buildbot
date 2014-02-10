@@ -52,8 +52,15 @@ class UsersConnectorComponent(base.DBConnectorComponent):
             # time from the perspective of other masters.
             transaction = conn.begin()
             try:
-                r = conn.execute(tbl.insert(), dict(identifier=identifier))
-                uid = r.inserted_primary_key[0]
+
+                qu = sa.select([tbl.c.uid], whereclause=(tbl.c.identifier ==
+identifier))
+                rows = conn.execute(qu).fetchall()
+                if rows:
+                    uid = rows[0].uid
+                else:
+                    r = conn.execute(tbl.insert(), dict(identifier=identifier))
+                    uid = r.inserted_primary_key[0]
 
                 conn.execute(tbl_info.insert(),
                              dict(uid=uid, attr_type=attr_type,

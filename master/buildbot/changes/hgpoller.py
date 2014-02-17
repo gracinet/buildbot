@@ -50,7 +50,7 @@ class HgPoller(base.PollingChangeSource):
         self.repourl = repourl
         self.branch = branch
         base.PollingChangeSource.__init__(
-            self, name=repourl, pollInterval=pollInterval, pollAtLaunch=pollAtLaunch)
+            self, name='|'.join((repourl, branch)), pollInterval=pollInterval, pollAtLaunch=pollAtLaunch)
         self.encoding = encoding
         self.lastChange = time.time()
         self.lastPoll = time.time()

@@ -45,6 +45,19 @@ def checkBasedir(config):
             print "'%s' exists - is this master still running?" % (pidfile,)
             return False
 
+    tac = base.getConfigFromTac(config['basedir'])
+    if tac:
+        if isinstance(tac.get('rotateLength', 0), str):
+            print "ERROR: rotateLength is a string, it should be a number"
+            print "ERROR: Please, edit your buildbot.tac file and run again"
+            print "ERROR: See http://trac.buildbot.net/ticket/2588 for more details"
+            return False
+        if isinstance(tac.get('maxRotatedFiles', 0), str):
+            print "ERROR: maxRotatedFiles is a string, it should be a number"
+            print "ERROR: Please, edit your buildbot.tac file and run again"
+            print "ERROR: See http://trac.buildbot.net/ticket/2588 for more details"
+            return False
+
     return True
 
 

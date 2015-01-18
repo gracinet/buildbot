@@ -19,6 +19,7 @@
 import datetime
 import os
 import re
+import urllib
 
 from twisted.internet import defer
 from twisted.web import html
@@ -113,11 +114,11 @@ def FilterOut(data):
     if isinstance(data, (list, tuple)):
         # Recurse in every items and filter them out.
         items = map(FilterOut, data)
-        if not filter(lambda x: not x in ('', False, None, [], {}, ()), items):
+        if not filter(lambda x: x not in ('', False, None, [], {}, ()), items):
             return None
         return items
     elif isinstance(data, dict):
-        return dict(filter(lambda x: not x[1] in ('', False, None, [], {}, ()),
+        return dict(filter(lambda x: x[1] not in ('', False, None, [], {}, ()),
                            [(k, FilterOut(v)) for (k, v) in data.iteritems()]))
     else:
         return data
@@ -174,10 +175,10 @@ class JsonResource(resource.Resource):
             if isinstance(data, unicode):
                 data = data.encode("utf-8")
             request.setHeader("Access-Control-Allow-Origin", "*")
+            request.setHeader("content-type", self.contentType)
             if RequestArgToBool(request, 'as_text', False):
-                request.setHeader("content-type", 'text/plain')
+                request.setHeader("X-Content-Type-Options", "nosniff")
             else:
-                request.setHeader("content-type", self.contentType)
                 request.setHeader("content-disposition",
                                   "attachment; filename=\"%s.json\"" % request.path)
             # Make sure we get fresh pages.
@@ -229,7 +230,11 @@ class JsonResource(resource.Resource):
                 postpath = request.postpath[:]
                 request.postpath = filter(None, item.split('/'))
                 while request.postpath and not child.isLeaf:
-                    pathElement = request.postpath.pop(0)
+                    # Twisted unquotes the querystring once. We unquote once more
+                    # to allow for "doubly escaped" elements, which makes it possible
+                    # to select on resource names with slashes in them without them being
+                    # split into separate (invalid) elements.
+                    pathElement = urllib.unquote(request.postpath.pop(0))
                     node[pathElement] = {}
                     node = node[pathElement]
                     request.prepath.append(pathElement)
@@ -317,7 +322,7 @@ def ToHtml(text):
                     indent -= 2
 
         if line.startswith('/'):
-            if not '?' in line:
+            if '?' not in line:
                 line_full = line + '?as_text=1'
             else:
                 line_full = line + '&as_text=1'
@@ -326,7 +331,7 @@ def ToHtml(text):
         else:
             output.append(html.escape(line).replace('  ', '&nbsp;&nbsp;'))
         if not in_item:
-            output.append('<br>')
+            output.append('<br/>')
 
     if in_item:
         output.append('</li>')
@@ -645,7 +650,10 @@ class SlaveJsonResource(JsonResource):
             builds = []
             builder_status = self.status.getBuilder(builderName)
             cache_size = builder_status.master.config.caches['Builds']
-            numbuilds = int(request.args.get('numbuilds', [cache_size - 1])[0])
+            try:
+                numbuilds = int(request.args.get('numbuilds', [cache_size - 1])[0])
+            except ValueError:
+                numbuilds = 10
             for i in range(1, numbuilds):
                 build_status = builder_status.getBuild(-i)
                 if not build_status or not build_status.isFinished():

@@ -73,6 +73,8 @@ class ForceAction(ActionResource):
                 except ValidationError, e:
                     msg = html.escape(e.message.encode('ascii', 'ignore'))
                 break
+        else:
+            msg = 'no scheduler found'
 
         # send the user back to the builder page
         defer.returnValue(msg)
@@ -360,7 +362,10 @@ class StatusResourceBuilder(HtmlResource, BuildLineMixin):
                 'properties': properties,
             })
 
-        numbuilds = cxt['numbuilds'] = int(req.args.get('numbuilds', [self.numbuilds])[0])
+        try:
+            numbuilds = cxt['numbuilds'] = int(req.args.get('numbuilds', [self.numbuilds])[0])
+        except ValueError:
+            numbuilds = cxt['numbuilds'] = 10
         maxsearch = int(req.args.get('maxsearch', [200])[0])
         recent = cxt['recent'] = []
         for build in b.generateFinishedBuilds(
@@ -597,7 +602,10 @@ class BuildersResource(HtmlResource):
         status = self.getStatus(req)
         encoding = getRequestCharset(req)
 
-        builders = req.args.get("builder", status.getBuilderNames())
+        showCategories = req.args.get("category", [])
+        if showCategories == []:
+            showCategories = None
+        builders = req.args.get("builder", status.getBuilderNames(categories=showCategories))
         branches = [b.decode(encoding)
                     for b in req.args.get("branch", [])
                     if b]

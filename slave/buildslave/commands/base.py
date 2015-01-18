@@ -70,7 +70,8 @@ command_version = "2.16"
 #  >= 2.14: RemoveDirectory can delete multiple directories
 #  >= 2.15: 'interruptSignal' option is added to SlaveShellCommand
 #  >= 2.16: 'sigtermTime' option is added to SlaveShellCommand
-#  >= 2.17: listdir command added to read a directory
+#  >= 2.16: runprocess supports obfuscation via tuples (#1748)
+#  >= 2.16: listdir command added to read a directory
 
 
 class Command:
@@ -95,6 +96,8 @@ class Command:
     dict that is interpreted per-command.
 
     The setup(args) method is available for setup, and is run from __init__.
+    Mandatory args can be declared by listing them in the requiredArgs property.
+    They will be checked before calling the setup(args) method.
 
     The Command is started with start(). This method must be implemented in a
     subclass, and it should return a Deferred. When your step is done, you
@@ -130,10 +133,11 @@ class Command:
     #  sendStatus(dict) (zero or more)
     #  commandComplete() or commandInterrupted() (one, at end)
 
+    requiredArgs = []
     debug = False
     interrupted = False
-    running = False  # set by Builder, cleared on shutdown or when the
-                    # Deferred fires
+    # set by Builder, cleared on shutdown or when the Deferred fires
+    running = False
 
     _reactor = reactor
 
@@ -142,6 +146,11 @@ class Command:
         self.stepId = stepId  # just for logging
         self.args = args
         self.startTime = None
+
+        missingArgs = filter(lambda arg: arg not in args, self.requiredArgs)
+        if missingArgs:
+            raise ValueError("%s is missing args: %s" %
+                             (self.__class__.__name__, ", ".join(missingArgs)))
         self.setup(args)
 
     def setup(self, args):

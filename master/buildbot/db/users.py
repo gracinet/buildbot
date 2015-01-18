@@ -18,6 +18,7 @@ import sqlalchemy as sa
 from sqlalchemy.sql.expression import and_
 
 from buildbot.db import base
+from buildbot.util import identifiers
 
 
 class UsDict(dict):
@@ -28,7 +29,7 @@ class UsersConnectorComponent(base.DBConnectorComponent):
     # Documentation is in developer/database.rst
 
     def findUserByAttr(self, identifier, attr_type, attr_data, _race_hook=None):
-        def thd(conn, no_recurse=False):
+        def thd(conn, no_recurse=False, identifier=identifier):
             tbl = self.db.model.users
             tbl_info = self.db.model.users_info
 
@@ -51,8 +52,8 @@ class UsersConnectorComponent(base.DBConnectorComponent):
             # the new user and the corresponding attributes appear at the same
             # time from the perspective of other masters.
             transaction = conn.begin()
+            inserted_user = False
             try:
-
                 qu = sa.select([tbl.c.uid], whereclause=(tbl.c.identifier ==
 identifier))
                 rows = conn.execute(qu).fetchall()
@@ -61,6 +62,7 @@ identifier))
                 else:
                     r = conn.execute(tbl.insert(), dict(identifier=identifier))
                     uid = r.inserted_primary_key[0]
+                    inserted_user = True
 
                 conn.execute(tbl_info.insert(),
                              dict(uid=uid, attr_type=attr_type,
@@ -71,10 +73,19 @@ identifier))
                 transaction.rollback()
 
                 # try it all over again, in case there was an overlapping,
-                # identical call to findUserByAttr, but only retry once.
+                # identical call to findUserByAttr.  If the identifier
+                # collided, we'll try again indefinitely; otherwise, only once.
                 if no_recurse:
                     raise
-                return thd(conn, no_recurse=True)
+
+                # if we failed to insert the user, then it's because the
+                # identifier wasn't unique
+                if not inserted_user:
+                    identifier = identifiers.incrementIdentifier(256, identifier)
+                else:
+                    no_recurse = True
+
+                return thd(conn, no_recurse=no_recurse, identifier=identifier)
 
             return uid
         d = self.db.pool.do(thd)

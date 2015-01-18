@@ -9,6 +9,10 @@ Build properties are a generalized way to provide configuration information to
 build steps; see :ref:`Build-Properties` for the conceptual overview of
 properties.
 
+.. contents::
+    :depth: 1
+    :local:
+
 Some build properties come from external sources and are set before the build
 begins; others are set during the build, and available for later steps.  The
 sources for properties are:
@@ -210,6 +214,10 @@ The following selectors are supported.
 ``kw``
     The key refers to a keyword argument passed to ``Interpolate``.
 
+``slave``
+    The key to the per-buildslave "info" dictionary (e.g., the "Slave information" properties shown
+    in the buildslave web page for each buildslave)
+
 The following ways of interpreting the value are available.
 
 ``-replacement``
@@ -269,6 +277,7 @@ While Interpolate can handle many simple cases, and even some common conditional
 The ``renderer`` decorator creates a renderable object that will be replaced with the result of the function, called when the step it's passed to begins.
 The function receives an :class:`~buildbot.interfaces.IProperties` object, which it can use to examine the values of any and all properties.  For example::
 
+    from buildbot.process import properties
     @properties.renderer
     def makeCommand(props):
         command = [ 'make' ]

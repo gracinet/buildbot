@@ -33,6 +33,10 @@ The rest of this section describes all the standard :class:`BuildStep` objects
 available for use in a :class:`Build`, and the parameters which can be used to
 control each.  A full list of build steps is available in the :bb:index:`step`.
 
+.. contents::
+    :depth: 2
+    :local:
+
 .. index:: Buildstep Parameter
 
 .. _Buildstep-Common-Parameters:
@@ -175,38 +179,35 @@ Source Checkout
 
 .. py:module:: buildbot.steps.source
 
-At the moment, Buildbot contains two implementations of most source steps.  The
-new implementation handles most of the logic on the master side, and has a
-simpler, more unified approach.  The older implementation
-(:ref:`Source-Checkout-Slave-Side`) handles the logic on the slave side, and
-some of the classes have a bewildering array of options.
+At the moment, Buildbot contains two implementations of most source steps:
 
-.. caution:: Master-side source checkout steps are recently developed and not
-    stable yet. If you find any bugs please report them on the `Buildbot Trac
-    <http://trac.buildbot.net/newticket>`_. The older Slave-side described source
-    steps are :ref:`Source-Checkout-Slave-Side`.
+* the new implementation handles most of the logic on the master side, and has a simpler, more unified approach;
+* the older implementation handles the logic on the slave side, and some of the classes have a bewildering array of options.
 
-    The old source steps are imported like this::
+.. note::
 
-        from buildbot.steps.source import Git
+   Both implementations perform the checkout on the slave side.
+   The difference is where the parameters are processed and where the logic is implemented.
 
-    while new source steps are in separate source-packages for each
-    version-control system::
+The new source steps are in separate source-packages for each version-control system, e.g.::
 
-        from buildbot.steps.source.git import Git
+    from buildbot.steps.source.git import Git
 
+while the old source steps are imported like this::
 
-New users should, where possible, use the new implementations.  The old
-implementations will be deprecated in a later release.  Old users should take
-this opportunity to switch to the new implementations while both are supported
-by Buildbot.
+    from buildbot.steps.source import Git
 
-Some version control systems have not yet been implemented as master-side
-steps.  If you are interested in continued support for such a version control
-system, please consider helping the Buildbot developers to create such an
-implementation.  In particular, version-control systems with proprietary
-licenses will not be supported without access to the version-control system
-for development.
+New users should, where possible, use the new implementations.
+The old implementations are deprecated and will be removed in the next major release (0.9.0).
+Old users should take this opportunity to switch to the new implementations while both are supported by Buildbot.
+
+.. note::
+
+   Some version control systems have not yet been implemented as master-side steps.
+   If you are interested in continued support for such a version control system, please consider helping the Buildbot developers to create such an implementation.
+   In particular, version-control systems with proprietary licenses will not be supported without access to the version-control system for development.
+
+Below are described the master-side steps, the information about slave-side steps you can find in :ref:`Source-Checkout-Slave-Side`.
 
 Common Parameters
 +++++++++++++++++
@@ -859,6 +860,9 @@ you will receive a configuration error exception.
 
         P4(p4extra_args=['-Zproxyload'], ...)
 
+``use_tickets``
+    Set to ``True`` to use ticket-based authentication, instead of passwords (but
+    you still need to specify ``p4passwd``).
 
 
 .. index:: double: Gerrit integration; Repo Build Step
@@ -905,6 +909,11 @@ The Repo step takes the following arguments:
 ``syncAllBranches``
     (optional, defaults to ``False``): renderable boolean to control whether ``repo``
     syncs all branches. i.e. ``repo sync -c``
+
+``depth``
+    (optional, defaults to 0): Depth argument passed to repo init.
+    Specifies the amount of git history to store. A depth of 1 is useful for shallow clones.
+    This can save considerable disk space on very large projects.
 
 ``updateTarballAge``
     (optional, defaults to "one week"):
@@ -957,7 +966,7 @@ for example::
    from buildbot.steps.source.repo import RepoDownloadsFromProperties
    from buildbot.process.properties import FlattenList
 
-   factory.addStep(Repo(manifestUrl='git://mygerrit.org/manifest.git',
+   factory.addStep(Repo(manifestURL='git://mygerrit.org/manifest.git',
                         repoDownloads=FlattenList([RepoDownloadsFromChangeSource(),
                                                    RepoDownloadsFromProperties("repo_downloads")
                                                    ]
@@ -1917,6 +1926,11 @@ The :bb:step:`ShellCommand` arguments are:
     default this is "KILL" (9). Specify "TERM" (15) to give the process a
     chance to cleanup.  This functionality requires a 0.8.6 slave or newer.
 
+``sigtermTime``
+
+    If set, when interrupting, try to kill the command with SIGTERM and wait for sigtermTime seconds before firing ``interuptSignal``.
+    If None, ``interruptSignal`` will be fired immediately on interrupt.
+
 ``initialStdin``
     If the command expects input on stdin, that can be supplied a a string with
     this parameter.  This value should not be excessively large, as it is
@@ -2221,8 +2235,14 @@ Available constructor arguments are:
 ``move``
     Delete the source directory after the copy is complete (``/MOVE`` parameter).
 
-``exclude``
+``exclude_files``
     An array of file names or patterns to exclude from the copy (``/XF`` parameter).
+
+``exclude_dirs``
+    An array of directory names or patterns to exclude from the copy (``/XD`` parameter).
+
+``custom_opts``
+    An array of custom parameters to pass directly to the ``robocopy`` command.
 
 ``verbose``
     Whether to output verbose information (``/V /TS /TP`` parameters).
@@ -3085,6 +3105,39 @@ displayed as :envvar:`TMP` in the Windows GUI. ::
 Note that this step requires that the Buildslave be at least version 0.8.3.
 For previous versions, no environment variables are available (the slave
 environment will appear to be empty).
+
+.. _Setting-Buildslave-Info:
+
+Setting Buildslave Info
+-----------------------
+
+Each buildslave has a dictionary of properties (the "buildslave info dictionary") that is persisted into the database.
+This info dictionary is displayed on the "buildslave" web page and is available in Interpolate operations.
+
+.. bb:step:: SetSlaveInfo
+
+.. _Step-SetSlaveInfo:
+
+SetSlaveInfo
+++++++++++++
+
+.. py:class:: buildbot.steps.master.SetSlaveInfo
+
+``SetSlaveInfo`` is a base class to provide a facility to set values in the buildslave info dictionary.
+For example::
+
+    from buildbot.steps.master import SetSlaveInfo
+
+    class SetSlaveFromPropInfo(SetSlaveInfo):
+        name = "SetSlaveFromPropInfo"
+
+        # override this to return the dictionary update
+        def getSlaveInfoUpdate(self):
+            # for example, copy a property into the buildslave dict
+            update = { 
+                "foo": self.getProperty("foo")
+            }
+            return update
 
 
 .. index:: Properties; triggering schedulers

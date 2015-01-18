@@ -24,6 +24,7 @@ from buildbot.status.results import FAILURE
 from buildbot.status.results import RETRY
 from buildbot.status.results import SUCCESS
 from buildbot.status.results import WARNINGS
+from buildbot.test.fake import slave
 from buildbot.test.fake.fakemaster import FakeBotMaster
 from twisted.internet import defer
 from twisted.trial import unittest
@@ -92,7 +93,7 @@ class FakeMaster:
         self.config = config.MasterConfig()
 
     def getLockByID(self, lockid):
-        if not lockid in self.locks:
+        if lockid not in self.locks:
             self.locks[lockid] = lockid.lockClass(lockid)
         return self.locks[lockid]
 
@@ -130,6 +131,7 @@ class TestBuild(unittest.TestCase):
 
         self.master.botmaster = FakeBotMaster(master=self.master)
 
+        self.slave = slave.FakeSlave(self.master)
         self.builder = self.createBuilder()
         self.build = Build([r])
         self.build.master = self.master
@@ -488,7 +490,7 @@ class TestBuild(unittest.TestCase):
             return retval
         step.acquireLocks = acquireLocks
         step.setStepStatus = Mock()
-        step.step_status = Mock()
+        step._step_status = Mock()
         step.step_status.addLog().chunkSize = 10
         step.step_status.getLogs.return_value = []
 
@@ -869,10 +871,11 @@ class TestBuildProperties(unittest.TestCase):
         self.assertTrue(self.build.hasProperty('p'))
         self.build_status.hasProperty.assert_called_with('p')
 
-    def test_has_propkey(self):
-        self.build_status.has_propkey.return_value = True
-        self.assertTrue(self.build.has_propkey('p'))
-        # has_propkey calls through to hasProperty
+    def test_has_key(self):
+        self.build_status.has_key.return_value = True
+        # getattr because pep8 doesn't like calls to has_key
+        self.assertTrue(getattr(self.build, 'has_key')('p'))
+        # has_key calls through to hasProperty
         self.build_status.hasProperty.assert_called_with('p')
 
     def test_render(self):

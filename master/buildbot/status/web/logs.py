@@ -176,7 +176,7 @@ class HTMLLog(Resource):
 
     def render(self, request):
         request.setHeader("content-type", "text/html")
-        return self.original.html
+        return self.original.getText()
 
 components.registerAdapter(HTMLLog, logfile.HTMLLogFile, IHTMLLog)
 
@@ -191,7 +191,7 @@ class LogsResource(HtmlResource):
     def getChild(self, path, req):
         for log in self.step_status.getLogs():
             if path == log.getName():
-                if log.hasContents():
+                if log.old_hasContents():
                     return IHTMLLog(interfaces.IStatusLog(log))
                 return NoResource("Empty Log '%s'" % path)
         return HtmlResource.getChild(self, path, req)

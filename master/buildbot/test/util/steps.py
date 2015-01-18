@@ -15,8 +15,19 @@
 
 import mock
 
+from twisted.internet import defer
+from twisted.python import log
+from twisted.spread import pb
+
+from buildbot import config
 from buildbot import interfaces
+from buildbot.buildslave.base import BuildSlave
+from buildbot.process import builder
+from buildbot.process import buildrequest
 from buildbot.process import buildstep
+from buildbot.process import factory
+from buildbot.process import remotecommand as real_remotecommand
+from buildbot.process import slavebuilder
 from buildbot.test.fake import fakebuild
 from buildbot.test.fake import fakemaster
 from buildbot.test.fake import remotecommand
@@ -47,10 +58,11 @@ class BuildStepMixin(object):
         # make an (admittedly global) reference to this test case so that
         # the fakes can call back to us
         remotecommand.FakeRemoteCommand.testcase = self
-        self.patch(buildstep, 'RemoteCommand',
-                   remotecommand.FakeRemoteCommand)
-        self.patch(buildstep, 'RemoteShellCommand',
-                   remotecommand.FakeRemoteShellCommand)
+        for module in buildstep, real_remotecommand:
+            self.patch(module, 'RemoteCommand',
+                       remotecommand.FakeRemoteCommand)
+            self.patch(module, 'RemoteShellCommand',
+                       remotecommand.FakeRemoteShellCommand)
         self.expected_remote_commands = []
 
     def tearDownBuildStep(self):
@@ -76,8 +88,8 @@ class BuildStepMixin(object):
 
         @param slave_env: environment from the slave at slave startup
         """
-        factory = interfaces.IBuildStepFactory(step)
-        step = self.step = factory.buildStep()
+        fctry = interfaces.IBuildStepFactory(step)
+        step = self.step = fctry.buildStep()
         self.master = fakemaster.make_master(testcase=self)
 
         # step.build
@@ -104,7 +116,8 @@ class BuildStepMixin(object):
 
         # step.buildslave
 
-        self.buildslave = step.buildslave = slave.FakeSlave()
+        self.master = fakemaster.make_master(testcase=self)
+        self.buildslave = step.buildslave = slave.FakeSlave(self.master)
 
         # step.step_status
 
@@ -242,9 +255,9 @@ class BuildStepMixin(object):
             for pn in self.exp_missing_properties:
                 self.assertFalse(self.properties.hasProperty(pn),
                                  "unexpected property '%s'" % pn)
-            for log, contents in self.exp_logfiles.iteritems():
+            for l, contents in self.exp_logfiles.iteritems():
                 self.assertEqual(
-                    self.step_status.logs[log].stdout, contents, "log '%s' contents" % log)
+                    self.step_status.logs[l].stdout, contents, "log '%s' contents" % l)
             self.step_status.setHidden.assert_called_once_with(self.exp_hidden)
         d.addCallback(check)
         return d
@@ -269,9 +282,122 @@ class BuildStepMixin(object):
             del got[1][arg]
 
         # first check any ExpectedRemoteReference instances
-        self.assertEqual((exp.remote_command, exp.args), got)
+        try:
+            self.assertEqual((exp.remote_command, exp.args), got)
+        except AssertionError:
+            # log this error, as the step may swallow the AssertionError or
+            # otherwise obscure the failure.  Trial will see the exception in
+            # the log and print an [ERROR].  This may result in
+            # double-reporting, but that's better than non-reporting!
+            log.err()
+            raise
 
         # let the Expect object show any behaviors that are required
         d = exp.runBehaviors(command)
         d.addCallback(lambda _: command)
         return d
+
+
+class FakeBot():
+
+    def __init__(self):
+        self.commands = []
+        info = {'basedir': '/sl'}
+        doNothing = lambda *args: defer.succeed(None)
+        self.response = {
+            'getSlaveInfo': lambda: defer.succeed(info),
+            'setMaster': doNothing,
+            'print': doNothing,
+            'startBuild': doNothing,
+        }
+
+    def notifyOnDisconnect(self, cb):
+        pass
+
+    def dontNotifyOnDisconnect(self, cb):
+        pass
+
+    def callRemote(self, command, *args):
+        self.commands.append((command,) + args)
+        response = self.response.get(command)
+        if response:
+            return response(*args)
+        else:
+            return defer.fail(pb.NoSuchMethod(command))
+
+
+class BuildStepIntegrationMixin(object):
+
+    """Support for *integration* testing of buildsteps.  This class runs as
+    much "real" code as possible, unlike BuildStepMixin which focuses on the
+    step itself."""
+
+    @defer.inlineCallbacks
+    def setUpBuildStepIntegration(self):
+        self.master = fakemaster.make_master(testcase=self, wantDb=True)
+        self.builder = builder.Builder('test', _addServices=False)
+        self.builder.master = self.master
+        yield self.builder.startService()
+
+        self.factory = factory.BuildFactory()  # will have steps added later
+        new_config = config.MasterConfig()
+        new_config.builders.append(
+            config.BuilderConfig(name='test', slavename='testsl',
+                                 factory=self.factory))
+        yield self.builder.reconfigService(new_config)
+
+        self.slave = BuildSlave('bsl', 'pass')
+        self.slave.sendBuilderList = lambda: defer.succeed(None)
+        self.slave.botmaster = mock.Mock()
+        self.slave.botmaster.maybeStartBuildsForSlave = lambda sl: None
+        self.slave.master = self.master
+        self.slave.startService()
+        self.remote = FakeBot()
+        yield self.slave.attached(self.remote)
+
+        sb = self.slavebuilder = slavebuilder.SlaveBuilder()
+        sb.setBuilder(self.builder)
+        yield sb.attached(self.slave, self.remote, {})
+
+        # add the buildset/request
+        sssid = yield self.master.db.sourcestampsets.addSourceStampSet()
+        yield self.master.db.sourcestamps.addSourceStamp(branch='br',
+                                                         revision='1', repository='r://', project='',
+                                                         sourcestampsetid=sssid)
+        self.bsid, brids = yield self.master.db.buildsets.addBuildset(
+            sourcestampsetid=sssid, reason=u'x', properties={},
+            builderNames=['test'])
+
+        self.brdict = \
+            yield self.master.db.buildrequests.getBuildRequest(brids['test'])
+
+        self.buildrequest = \
+            yield buildrequest.BuildRequest.fromBrdict(self.master, self.brdict)
+
+    def tearDownBuildStepIntegration(self):
+        self.slave.stopKeepaliveTimer()
+        return self.builder.stopService()
+
+    def setupStep(self, step):
+        self.factory.addStep(step)
+
+    @defer.inlineCallbacks
+    def runStep(self):
+        # patch builder.buildFinished to signal us with a deferred
+        bfd = defer.Deferred()
+        old_buildFinished = self.builder.buildFinished
+
+        def buildFinished(*args):
+            old_buildFinished(*args)
+            bfd.callback(None)
+        self.builder.buildFinished = buildFinished
+
+        # start the builder
+        self.failUnless((yield self.builder.maybeStartBuild(
+            self.slavebuilder, [self.buildrequest])))
+
+        # and wait for completion
+        yield bfd
+
+        # then get the BuildStatus and return it
+        defer.returnValue(self.master.status.lastBuilderStatus.lastBuildStatus)

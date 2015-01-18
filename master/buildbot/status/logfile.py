@@ -212,6 +212,7 @@ class LogFile:
     BUFFERSIZE = 2048
     filename = None  # relative to the Builder's basedir
     openfile = None
+    _isNewStyle = False  # set to True by new-style buildsteps
 
     def __init__(self, parent, name, logfilename):
         """
@@ -259,6 +260,10 @@ class LogFile:
 
         @returns: boolean
         """
+        assert not self._isNewStyle, "not available in new-style steps"
+        return self.old_hasContents()
+
+    def old_hasContents(self):
         return os.path.exists(self.getFilename() + '.bz2') or \
             os.path.exists(self.getFilename() + '.gz') or \
             os.path.exists(self.getFilename())
@@ -328,9 +333,11 @@ class LogFile:
 
     def getText(self):
         # this produces one ginormous string
+        assert not self._isNewStyle, "not available in new-style steps"
         return "".join(self.getChunks([STDOUT, STDERR], onlyText=True))
 
     def getTextWithHeaders(self):
+        assert not self._isNewStyle, "not available in new-style steps"
         return "".join(self.getChunks(onlyText=True))
 
     def getChunks(self, channels=[], onlyText=False):
@@ -345,6 +352,8 @@ class LogFile:
         # point. To use this in subscribe(catchup=True) without missing any
         # data, you must insure that nothing will be added to the log during
         # yield() calls.
+
+        assert not self._isNewStyle, "not available in new-style steps"
 
         f = self.getFile()
         if not self.finished:
@@ -404,11 +413,13 @@ class LogFile:
     def readlines(self):
         """Return an iterator that produces newline-terminated lines,
         excluding header chunks."""
+        assert not self._isNewStyle, "not available in new-style steps"
         alltext = "".join(self.getChunks([STDOUT], onlyText=True))
         io = StringIO(alltext)
         return io.readlines()
 
     def subscribe(self, receiver, catchup):
+        assert not self._isNewStyle, "not available in new-style steps"
         if self.finished:
             return
         self.watchers.append(receiver)
@@ -423,6 +434,8 @@ class LogFile:
             self.watchers.remove(receiver)
 
     def subscribeConsumer(self, consumer):
+        # NOTE: this method is called by WebStatus, so it must remain available
+        # even for new-style steps
         p = LogFileProducer(self, consumer)
         p.resumeProducing()
 
@@ -526,6 +539,7 @@ class LogFile:
         @param text: text to add to the logfile
         """
         self.addEntry(STDOUT, text)
+        return defer.succeed(None)
 
     def addStderr(self, text):
         """
@@ -534,6 +548,7 @@ class LogFile:
         @param text: text to add to the logfile
         """
         self.addEntry(STDERR, text)
+        return defer.succeed(None)
 
     def addHeader(self, text):
         """
@@ -542,6 +557,7 @@ class LogFile:
         @param text: text to add to the logfile
         """
         self.addEntry(HEADER, text)
+        return defer.succeed(None)
 
     def finish(self):
         """
@@ -572,6 +588,7 @@ class LogFile:
         for w in watchers:
             w.callback(self)
         self.watchers = []
+        return defer.succeed(None)
 
     def compressLog(self):
         logCompressionMethod = self.master.config.logCompressionMethod
@@ -644,56 +661,28 @@ class LogFile:
         self.finished = True
 
 
-class HTMLLogFile:
-    implements(interfaces.IStatusLog)
-
-    filename = None
+class HTMLLogFile(LogFile):
 
     def __init__(self, parent, name, logfilename, html):
-        self.step = parent
-        self.name = name
-        self.filename = logfilename
-        self.html = html
-
-    def getName(self):
-        return self.name  # set in BuildStepStatus.addLog
-
-    def getStep(self):
-        return self.step
-
-    def isFinished(self):
-        return True
-
-    def waitUntilFinished(self):
-        return defer.succeed(self)
+        LogFile.__init__(self, parent, name, logfilename)
+        self.addStderr(html)
+        self.finish()
 
     def hasContents(self):
+        assert not self._isNewStyle, "not available in new-style steps"
         return True
 
-    def getText(self):
-        return self.html  # looks kinda like text
+    def __setstate__(self, d):
+        self.__dict__ = d
+        self.watchers = []
+        self.finishedWatchers = []
+        self.finished = True
 
-    def getTextWithHeaders(self):
-        return self.html
-
-    def getChunks(self):
-        return [(STDERR, self.html)]
-
-    def subscribe(self, receiver, catchup):
-        pass
-
-    def unsubscribe(self, receiver):
-        pass
-
-    def finish(self):
-        pass
-
-    def __getstate__(self):
-        d = self.__dict__.copy()
-        del d['step']
-        if "master" in d:
-            del d['master']
-        return d
+        # buildbot <= 0.8.8 stored all html logs in the html property
+        if 'html' in self.__dict__:
+            buf = "%d:%d%s," % (len(self.html) + 1, STDERR, self.html)
+            self.openfile = StringIO(buf)
+            del self.__dict__['html']
 
 
 def _tryremove(filename, timeout, retries):

@@ -19,7 +19,6 @@ from buildbot.interfaces import BuildSlaveTooOldError
 from buildbot.process import buildstep
 from buildbot.status.results import FAILURE
 from buildbot.status.results import SUCCESS
-from twisted.internet import defer
 
 
 class SlaveBuildStep(buildstep.BuildStep):
@@ -243,8 +242,6 @@ class MakeDirectory(SlaveBuildStep):
 
 class CompositeStepMixin():
 
-    """I define utils for composite steps, factorizing basic remote commands"""
-
     def addLogForRemoteCommands(self, logname):
         """This method must be called by user classes
         composite steps could create several logs, this mixin functions will write
@@ -253,7 +250,8 @@ class CompositeStepMixin():
         self.rc_log = self.addLog(logname)
         return self.rc_log
 
-    def runRemoteCommand(self, cmd, args, abandonOnFailure=True):
+    def runRemoteCommand(self, cmd, args, abandonOnFailure=True,
+                         evaluateCommand=lambda cmd: cmd.didFail()):
         """generic RemoteCommand boilerplate"""
         cmd = buildstep.RemoteCommand(cmd, args)
         cmd.useLog(self.rc_log, False)
@@ -262,26 +260,39 @@ class CompositeStepMixin():
         def commandComplete(cmd):
             if abandonOnFailure and cmd.didFail():
                 raise buildstep.BuildStepFailed()
-            return cmd.didFail()
+            return evaluateCommand(cmd)
+
         d.addCallback(lambda res: commandComplete(cmd))
         return d
 
     def runRmdir(self, dir, **kwargs):
         """ remove a directory from the slave """
-        return self.runRemoteCommand('rmdir',
-                                     {'dir': dir, 'logEnviron': self.logEnviron},
-                                     **kwargs)
+        args = {'dir': dir, 'logEnviron': self.logEnviron}
+        if hasattr(self, 'timeout'):
+            args['timeout'] = self.timeout
+        return self.runRemoteCommand('rmdir', args, **kwargs)
 
-    @defer.inlineCallbacks
     def pathExists(self, path):
         """ test whether path exists"""
-        res = yield self.runRemoteCommand('stat', {'file': path,
-                                                   'logEnviron': self.logEnviron, },
-                                          abandonOnFailure=False)
-        defer.returnValue(not res)
+        def commandComplete(cmd):
+            return not cmd.didFail()
+
+        return self.runRemoteCommand('stat', {'file': path,
+                                              'logEnviron': self.logEnviron, },
+                                     abandonOnFailure=False,
+                                     evaluateCommand=commandComplete)
 
     def runMkdir(self, _dir, **kwargs):
         """ create a directory and its parents"""
         return self.runRemoteCommand('mkdir', {'dir': _dir,
                                                'logEnviron': self.logEnviron, },
                                      **kwargs)
+
+    def runGlob(self, glob):
+        """ find files matching a shell-style pattern"""
+        def commandComplete(cmd):
+            return cmd.updates['files'][-1]
+
+        return self.runRemoteCommand('glob', {'glob': glob,
+                                              'logEnviron': self.logEnviron, },
+                                     evaluateCommand=commandComplete)

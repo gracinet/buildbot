@@ -31,7 +31,7 @@
 # docker build -t buildbot - < Dockerfile
 #
 # # Run buildbot
-# CONTAINER_ID=$(docker run -d buildbot)
+# CONTAINER_ID=$(docker run -d -p 8010:8010 -p 22 buildbot)
 #
 # # Test buildbot master is listening
 # wget -qO- localhost:8010
@@ -51,14 +51,15 @@
 # # make your buildbot playground useful for your own projects.
 #
 # # Log into container  (username: admin   password: admin)
-# ssh -p $(docker port $CONTAINER_ID 22) admin@localhost
+# ssh -p $(docker port $CONTAINER_ID 22 | cut -d: -f 2) admin@localhost
 #
 # Base docker image
 from ubuntu:12.04
 
 # Make dpkg happy with the upstart issue
-run dpkg-divert --local --rename --add /sbin/initctl
-run ln -s /bin/true /sbin/initctl
+## appears to not be necessary anymore --dustin
+#run dpkg-divert --local --rename --add /sbin/initctl
+#run ln -s /bin/true /sbin/initctl
 
 # Install buildbot and its dependencies
 run echo "deb http://archive.ubuntu.com/ubuntu precise main universe" > \

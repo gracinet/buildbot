@@ -23,6 +23,12 @@ from buildslave.commands import utils
 from buildslave.test.util.command import CommandTestMixin
 from twisted.python import runtime
 
+# python-2.4 doesn't have os.errno
+if hasattr(os, 'errno'):
+    errno = os.errno
+else:
+    import errno
+
 
 class TestRemoveDirectory(CommandTestMixin, unittest.TestCase):
 
@@ -167,8 +173,10 @@ class TestMakeDirectory(CommandTestMixin, unittest.TestCase):
         d = self.run_command()
 
         def check(_):
-            self.assertUpdates([{'rc': 1}], self.builder.show())
-        d.addErrback(check)
+            self.assertIn({'rc': errno.EEXIST},
+                          self.get_updates(),
+                          self.builder.show())
+        d.addCallback(check)
         return d
 
 
@@ -187,9 +195,9 @@ class TestStatFile(CommandTestMixin, unittest.TestCase):
         d = self.run_command()
 
         def check(_):
-            self.assertUpdates(
-                [{'rc': 1}],
-                self.builder.show())
+            self.assertIn({'rc': errno.ENOENT},
+                          self.get_updates(),
+                          self.builder.show())
         d.addCallback(check)
         return d
 
@@ -226,6 +234,59 @@ class TestStatFile(CommandTestMixin, unittest.TestCase):
         return d
 
 
+class TestGlobPath(CommandTestMixin, unittest.TestCase):
+
+    def setUp(self):
+        self.setUpCommand()
+
+    def tearDown(self):
+        self.tearDownCommand()
+
+    def test_non_existant(self):
+        self.make_command(fs.GlobPath, dict(
+            path='no-*-file',
+        ), True)
+        d = self.run_command()
+
+        def check(_):
+            self.assertEqual(self.get_updates()[0]['files'], [])
+            self.assertIn({'rc': 0},
+                          self.get_updates(),
+                          self.builder.show())
+        d.addCallback(check)
+        return d
+
+    def test_directory(self):
+        self.make_command(fs.GlobPath, dict(
+            path='[wxyz]or?d*',
+        ), True)
+        d = self.run_command()
+
+        def check(_):
+            self.assertEqual(self.get_updates()[0]['files'], [os.path.join(self.basedir, 'workdir')])
+            self.assertIn({'rc': 0},
+                          self.get_updates(),
+                          self.builder.show())
+        d.addCallback(check)
+        return d
+
+    def test_file(self):
+        self.make_command(fs.GlobPath, dict(
+            path='t*-file',
+        ), True)
+        open(os.path.join(self.basedir, 'test-file'), "w")
+
+        d = self.run_command()
+
+        def check(_):
+            self.assertEqual(self.get_updates()[0]['files'], [os.path.join(self.basedir, 'test-file')])
+            self.assertIn({'rc': 0},
+                          self.get_updates(),
+                          self.builder.show())
+        d.addCallback(check)
+        return d
+
+
 class TestListDir(CommandTestMixin, unittest.TestCase):
 
     def setUp(self):
@@ -241,9 +302,9 @@ class TestListDir(CommandTestMixin, unittest.TestCase):
         d = self.run_command()
 
         def check(_):
-            self.assertUpdates(
-                [{'rc': 1}],
-                self.builder.show())
+            self.assertIn({'rc': errno.ENOENT},
+                          self.get_updates(),
+                          self.builder.show())
         d.addCallback(check)
         return d
 
@@ -256,6 +317,11 @@ class TestListDir(CommandTestMixin, unittest.TestCase):
         open(os.path.join(workdir, 'file2'), "w")
 
         d = self.run_command()
+
+        def any(items):  # not a builtin on python-2.4
+            for i in items:
+                if i:
+                    return True
 
         def check(_):
             self.assertIn({'rc': 0},

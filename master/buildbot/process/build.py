@@ -140,7 +140,7 @@ class Build(properties.PropertiesMixin, WorkerAPICompatMixin):
         return "<Build %s>" % (self.builder.name,)
 
     def blamelist(self):
-        # FIXME: kill this. This belongs to reporter.utils
+        # FIXME: kill this. This belongs to reporters.utils
         blamelist = []
         for c in self.allChanges():
             if c.who not in blamelist:

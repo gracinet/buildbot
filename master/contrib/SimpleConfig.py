@@ -96,7 +96,7 @@ from buildbot.changes import filter
 from buildbot.changes.gitpoller import GitPoller
 from buildbot.config import BuilderConfig
 from buildbot.process.factory import BuildFactory
-from buildbot.reporter.mail import MailNotifier
+from buildbot.plugins import reporters
 from buildbot.schedulers import triggerable
 from buildbot.schedulers.basic import SingleBranchScheduler
 from buildbot.schedulers.forcesched import FixedParameter
@@ -233,10 +233,10 @@ class SimpleConfig(dict):
             html.WebStatus(http_port=self.__http_port, authz=authz_cfg, order_console_by_time=True))
 
         self['status'].append(
-            MailNotifier(fromaddr="buildbot@example.com",
-                         mode=('problem'),
-                         sendToInterestedUsers=True,
-                         extraRecipients=['buildteam@example.com']))
+            reporters.MailNotifier(fromaddr="buildbot@example.com",
+                                   mode=('problem'),
+                                   sendToInterestedUsers=True,
+                                   extraRecipients=['buildteam@example.com']))
 
         # DB URL
         self['db'] = {

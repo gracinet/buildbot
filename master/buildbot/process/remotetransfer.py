@@ -102,10 +102,15 @@ class DirectoryWriter(FileWriter):
     """
 
     def __init__(self, destroot, maxsize, compress, mode):
+        destroot = os.path.abspath(destroot)
+        parent = os.path.dirname(destroot)
+        if not os.path.exists(parent):
+            os.makedirs(parent)
+
         self.destroot = destroot
         self.compress = compress
 
-        self.fd, self.tarname = tempfile.mkstemp()
+        self.fd, self.tarname = tempfile.mkstemp(dir=parent)
         os.close(self.fd)
 
         FileWriter.__init__(self, self.tarname, maxsize, mode)

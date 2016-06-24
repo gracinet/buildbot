@@ -68,6 +68,9 @@ The worker-side Bot object has the following remote methods:
 :meth:`~buildbot_worker.pb.BotPb.remote_getVersion`
     Returns the worker's version.
 
+:meth:`~buildbot_worker.pb.BotPb.remote_shutdown`
+    Shuts down the worker cleanly.
+
 Worker methods
 ~~~~~~~~~~~~~~
 
@@ -135,9 +138,6 @@ Worker-Side :class:`~buildbot_worker.pb.WorkerForBuilderPb` Methods
 
 :meth:`~buildbot_worker.pb.WorkerForBuilderPb.remote_interruptCommand`
     Interrupts the currently-running command
-
-:meth:`~buildbot_worker.pb.WorkerForBuilderPb.remote_shutdown`
-    Shuts down the worker cleanly
 
 Master-side :class:`~buildbot.process.workerforbuilder.WorkerForBuilder` Methods
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -236,7 +236,7 @@ Runs a shell command on the worker.  This command takes the following arguments:
 ``usePTY``
 
     If true, the command should be run with a PTY (POSIX only).  This
-    defaults to the value specified in the worker's ``buildbot.tac``.
+    defaults to False.
 
 ``not_really``
 
@@ -490,10 +490,3 @@ It produces two status updates:
 ``rc``
 
     0 if the ``os.listdir`` does not raise exception, otherwise 1.
-
-Source Commands
-...............
-
-The source commands (``bk``, ``cvs``, ``darcs``, ``git``, ``repo``, ``bzr``,
-``hg``, ``p4``, ``p4sync``, and ``mtn``) are deprecated.  See the docstrings in
-the source code for more information.
